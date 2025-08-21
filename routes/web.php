@@ -28,13 +28,10 @@ use App\Http\Controllers\CatatanController;
 Route::get('/', [AuthController::class, 'login'])->name('login');
 Route::post('/login', [AuthController::class, 'authenticate'])->name('authenticate');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
-Route::post('/bookings', [BookingController::class, 'store'])->name('bookings.store');
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::resource('siswa', SiswaController::class);
-    Route::resource('admin', adminController::class);
-    Route::resource('admin', adminController::class);
     Route::resource('user', UserController::class);
     Route::resource('role', RoleController::class);
     Route::resource('schedule', ScheduleController::class);
@@ -42,7 +39,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('schedule-json', [ScheduleController::class, 'getSchedules'])->name('schedule.json');
     Route::get('schedule/{id}/approve', [ScheduleController::class, 'approve'])->name('schedule.approve');
     Route::get('schedule/{id}/reject', [ScheduleController::class, 'reject'])->name('schedule.reject');
-    Route::get('/bookings', [BookingController::class, 'index'])->name('bookings.index');
+    Route::get('schedule-availability', [ScheduleController::class, 'getTeacherAvailability'])->name('schedule.availability');
     Route::get('/formulir-minat-bakat', [MinatBakatController::class, 'create'])->name('minat-bakat.create');
     Route::get('/hasil-tes', [HasilTesController::class, 'index'])->name('hasil.index');
     Route::get('/hasil-tes/{user}', [HasilTesController::class, 'show'])->name('hasil.show');

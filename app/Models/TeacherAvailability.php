@@ -9,10 +9,18 @@ class TeacherAvailability extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['teacher_id', 'available_date', 'available_time', 'is_booked'];
+    protected $fillable = [
+        'user_id',
+        'day_of_week',
+        'start_time',
+        'end_time',
+    ];
 
-    public function teacher()
+    /**
+     * Relasi ke model User (guru).
+     */
+    public function user()
     {
-        return $this->belongsTo(Teacher::class);
+        return $this->belongsTo(User::class);
     }
 }

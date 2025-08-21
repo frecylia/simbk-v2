@@ -24,6 +24,10 @@
                             <th>Deskripsi : </th>
                             <td id="t-deskripsi"></td>
                         </tr>
+                        <tr>
+                            <th>Status : </th>
+                            <td id="t-status"></td>
+                        </tr>
                    </table>
                 </div>
             </div>

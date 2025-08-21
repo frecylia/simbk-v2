@@ -9,9 +9,3 @@ class Booking extends Model
 {
     use HasFactory;
 }
-protected $fillable = [
-    'student_id',
-    'teacher_id',
-    'schedule_date',
-    'schedule_time',
-];

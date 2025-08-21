@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Auth;
 
 class ScheduleController extends Controller
@@ -31,50 +32,105 @@ class ScheduleController extends Controller
      */
     public function store(Request $request)
     {
+          $request->validate([
+            'schedule_date' => 'required|date|after_or_equal:today',
+            'schedule_time' => [
+                'required',
+                'date_format:H:i',
+                Rule::unique('schedules')->where(function ($query) use ($request) {
+                    return $query->where('schedule_date', $request->schedule_date)
+                                 ->where('user_id', $request->user_id);
+                }),
+            ],
+            'user_id' => 'required|integer|exists:users,id',
+            'description' => 'nullable|string|max:1000',
+        ], [
+            'schedule_time.unique' => 'Jadwal pada jam ini dengan guru tersebut sudah dipesan. Silakan pilih jam lain.'
+        ]);
+
         DB::beginTransaction();
         try {
-            Carbon::setLocale('id');
-
-            // Ubah string "Rabu, 9 Juli 2025" menjadi format tanggal
-            $originalDate = $request->schedule_date;
-            $bulanIndonesia = [
-                'Januari' => 'January', 'Februari' => 'February', 'Maret' => 'March',
-                'April' => 'April', 'Mei' => 'May', 'Juni' => 'June',
-                'Juli' => 'July', 'Agustus' => 'August', 'September' => 'September',
-                'Oktober' => 'October', 'November' => 'November', 'Desember' => 'December',
-            ];
-            $cleanedDate = preg_replace('/^[A-Za-z]+,\s*/', '', $originalDate);
-            foreach ($bulanIndonesia as $indo => $eng) {
-                if (strpos($cleanedDate, $indo) !== false) {
-                    $cleanedDate = str_replace($indo, $eng, $cleanedDate);
-                    break;
-                }
-            }
-            $formattedDate = Carbon::createFromFormat('d F Y', $cleanedDate)->format('Y-m-d');
-          
             Schedule::create([
-                'schedule_date' => $formattedDate,
+                'schedule_date' => $request->schedule_date,
                 'schedule_time' => $request->schedule_time,
-                'student_id'       => Auth::id(),
-                'user_id'       => $request->user_id,
-                'description'    => $request->ketarangan,
+                'student_id'    => Auth::id(), // Pastikan user yang login adalah siswa
+                'user_id'       => $request->user_id, // ID Guru BK
+                'description'   => $request->description, // Sesuaikan dengan nama input di form
+                'status'        => 'pending', // Set status awal
             ]);
     
             DB::commit();
     
-            return redirect()->back()->with('success', 'Jadwal berhasil disimpan!');
+            return redirect()->route('schedule.index')->with('success', 'Jadwal berhasil dibuat dan sedang menunggu persetujuan.');
+
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Gagal menyimpan jadwal: ' . $e->getMessage());
     
-            return redirect()->back()->with('error', 'Terjadi kesalahan saat menyimpan jadwal.');
+            return redirect()->back()->with('error', 'Terjadi kesalahan saat membuat jadwal.')->withInput();
         }
+    }
+
+    public function getTeacherAvailability(Request $request)
+    {
+        $request->validate(['date' => 'required|date']);
+
+        $date = Carbon::parse($request->date);
+        $dayOfWeek = $date->dayOfWeekIso;
+
+        $availableTeachers = User::whereHas('roles', fn($q) => $q->where('name', 'GuruBK'))
+            ->whereHas('availabilities', fn($q) => $q->where('day_of_week', $dayOfWeek))
+            ->with('availabilities', fn($q) => $q->where('day_of_week', $dayOfWeek))
+            ->get();
+
+
+        $result = [];
+        foreach ($availableTeachers as $teacher) {
+            $availability = $teacher->availabilities->first();
+            $startTime = Carbon::parse($availability->start_time);
+            $endTime = Carbon::parse($availability->end_time);
+            
+            $bookedTimes = Schedule::where('user_id', $teacher->id)
+                ->where('schedule_date', $date->toDateString())
+                ->pluck('schedule_time')
+                ->map(fn($time) => Carbon::parse($time)->format('H:i'))
+                ->toArray();
+
+            $availableSlots = [];
+            while ($startTime < $endTime) {
+                $slot = $startTime->format('H:i');
+                if (!in_array($slot, $bookedTimes)) {
+                    $availableSlots[] = $slot;
+                }
+                $startTime->addMinutes(30);
+            }
+
+    
+            if (!empty($availableSlots)) {
+                $result[] = [
+                    'id' => $teacher->id,
+                    'name' => $teacher->name,
+                    'slots' => $availableSlots
+                ];
+            }
+        }
+
+        return response()->json($result);
     }
 
     public function getSchedules()
     {
         $schedules = Schedule::with(['student', 'teacher'])->where('student_id', Auth::id())->get();
         $events = $schedules->map(function ($schedule) {
+            if (strtolower($schedule->status) == 'disetujui'){
+                $status = '<span class="badge bg-success">Disetujui</span>';
+            }elseif (strtolower($schedule->status) == 'pending'){
+                $status = '<span class="badge bg-warning text-dark">Pending</span>';
+            }elseif (strtolower($schedule->status) == 'ditolak'){
+                $status = '<span class="badge bg-danger">Tolak</span>';
+            }else{
+                $status = '<span class="badge bg-secondary">Tidak diketahui</span>';
+            }
             return [
                 'title' => 'Konseling: ' . $schedule->teacher?->name,
                 'start' => $schedule->schedule_date,
@@ -82,7 +138,8 @@ class ScheduleController extends Controller
                     'siswa' => $schedule->student?->name,
                     'guru' => $schedule->teacher->name ?? '-',
                     'schedule_time' => $schedule->schedule_time,
-                    'deskripsi' => $schedule->description ?? '-'
+                    'deskripsi' => $schedule->description ?? '-',
+                    'status' => $status ?? '-'
                 ]
             ];
         });

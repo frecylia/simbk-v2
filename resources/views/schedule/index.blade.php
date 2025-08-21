@@ -32,56 +32,59 @@
             </div>
         </div>
         <div class="modal fade" id="eventDetailModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
-            <div class="modal-dialog modal-lg">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h1 class="modal-title fs-5" id="exampleModalLabel">Buat Jadwal</h1>
+                        <h1 class="modal-title fs-5" id="exampleModalLabel">Pilih Jadwal Konseling</h1>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
+                    
                     <form action="{{route('schedule.store')}}" method="POST" id="form-jadwal">
                         @csrf
+                        <input type="hidden" name="schedule_date" id="schedule_date">
+                        <input type="hidden" name="user_id" id="selected_teacher_id">
+                        <input type="hidden" name="schedule_time" id="selected_schedule_time">
+
                         <div class="modal-body">
-                            <div class="row">
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="schedule_date">Tanggal Jadwal</label>
-                                        <input type="text" name="schedule_date" class="form-control" placeholder="Tanggal Jadwal" id="schedule_date" required>
-                                    </div>
+                            <div id="availability-view">
+                                <div class="mb-3">
+                                    <strong>Jadwal Tersedia untuk Tanggal:</strong>
+                                    <p id="selected_date_text" class="fs-5 text-primary"></p>
                                 </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="schedule_time">Jam Jadwal</label>
-                                        <input type="time" name="schedule_time" class="form-control" id="schedule_time" min="09:00" max="17:00" required>
-                                        <small class="text-muted">Pilih waktu antara 09:00 - 17:00</small>
-                                        
-                                    </div>
+                                <div class="table-responsive">
+                                    <table class="table table-bordered table-striped">
+                                        <thead>
+                                            <tr>
+                                                <th>Nama Guru BK</th>
+                                                <th>Jadwal Tersedia</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="teacher-availability-table-body">
+                                            <tr>
+                                                <td colspan="2" class="text-center">Memuat jadwal...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
                                 </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="user_id">Guru BK</label>
-                                        <select name="user_id" id="user_id" class="form-control" required>
-                                            <option value="">Pilih Guru BK</option>
-                                            @foreach ($users as $user)
-                                                <option value="{{$user->id}}">{{$user->name}}</option>
-                                            @endforeach
-                                        </select>
-                                    </div>
+                            </div>
+
+                            <div id="confirmation-view" style="display: none;">
+                                <h5 class="mb-3">Konfirmasi Jadwal Anda</h5>
+                                <div id="confirmation-details" class="alert alert-info">
                                 </div>
-                                
-                                <div class="col-lg-12 mt-2">
-                                    <div class="form-group">
-                                        <label for="time_schedule">Keterangan</label>
-                                        <textarea name="ketarangan" class="form-control" id="ketarangan" placeholder="keterangan" rows="6"></textarea>
-                                    </div>
+                                <div class="form-group">
+                                    <label for="description">Keterangan (Opsional)</label>
+                                    <textarea name="description" class="form-control" id="description" placeholder="Jelaskan singkat masalah Anda jika perlu" rows="4"></textarea>
                                 </div>
                             </div>
                         </div>
+
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                            <button type="submit" class="btn btn-primary">Save changes</button>
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Tutup</button>
+                            {{-- Tombol simpan hanya muncul di tampilan konfirmasi --}}
+                            <button type="submit" class="btn btn-primary" id="submit-schedule-btn" style="display: none;">Konfirmasi & Buat Jadwal</button>
                         </div>
                     </form>
-                    
                 </div>
             </div>
         </div>
@@ -169,42 +172,84 @@
 @push('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        var calendarEl = document.getElementById('calendar');
-        var tanggalTerisi = []; // akan diisi dari AJAX
+       var calendarEl = document.getElementById('calendar');
+        var scheduleModal = new bootstrap.Modal(document.getElementById('eventDetailModal'));
+        var detailModal = new bootstrap.Modal(document.getElementById('modal-detail-schedule'));
+        var availabilityView = document.getElementById('availability-view');
+        var confirmationView = document.getElementById('confirmation-view');
+        var submitBtn = document.getElementById('submit-schedule-btn');
+        var tableBody = document.getElementById('teacher-availability-table-body');
+        var myBookedDates = [];
 
         var calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
-            validRange: {
-                start: new Date().toISOString().split('T')[0]
+            headerToolbar: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,timeGridWeek,listWeek'
             },
-            events: "{{route('schedule.json')}}", // Ambil data dari Laravel
-
+            locale: 'id',
+            validRange: { start: new Date().toISOString().split('T')[0] },
+            events: "{{route('schedule.json')}}",
+            eventDidMount: function(info) {
+                // Ambil hanya bagian tanggal (YYYY-MM-DD)
+                const eventDate = info.event.startStr.split('T')[0];
+                if (!myBookedDates.includes(eventDate)) {
+                    myBookedDates.push(eventDate);
+                }
+            },
             dateClick: function (info) {
+                let lanjutkan = true; 
                 const clickedDate = info.dateStr;
-                const today = new Date().toISOString().split('T')[0];
 
-                // Jika tanggal sudah lewat
-                if (clickedDate < today) {
-                    alert("Tanggal sudah lewat, tidak bisa memilih.");
-                    return;
+                if (myBookedDates.includes(clickedDate)) {
+               
+                    lanjutkan = alert("Anda sudah memiliki jadwal pada tanggal ini !!");
                 }
 
-                // Jika tanggal sudah digunakan (disable klik)
-                if (tanggalTerisi.includes(clickedDate)) {
-                    alert("Tanggal sudah terisi jadwal, silakan pilih tanggal lain.");
-                    return;
+                if (lanjutkan) {
+                    tableBody.innerHTML = '<tr><td colspan="2" class="text-center">Memuat jadwal...</td></tr>';
+                    availabilityView.style.display = 'block';
+                    confirmationView.style.display = 'none';
+                    submitBtn.style.display = 'none';
+                    document.getElementById('form-jadwal').reset(); 
+                    document.getElementById('schedule_date').value = clickedDate;
+                    document.getElementById('selected_date_text').innerText = new Date(clickedDate).toLocaleDateString('id-ID', {
+                        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+                    });
+                    fetch(`{{ route('schedule.availability') }}?date=${clickedDate}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        tableBody.innerHTML = '';
+                        if (data.length === 0) {
+                            tableBody.innerHTML = '<tr><td colspan="2" class="text-center text-danger">Tidak ada jadwal yang tersedia pada tanggal ini.</td></tr>';
+                            return;
+                        }
+
+                        data.forEach(teacher => {
+                            let slotsHtml = '';
+                            teacher.slots.forEach(slot => {
+                                slotsHtml += `<button type="button" class="btn btn-outline-primary btn-sm m-1 select-slot-btn" 
+                                                data-teacher-id="${teacher.id}" 
+                                                data-teacher-name="${teacher.name}" 
+                                                data-time="${slot}">
+                                                ${slot}
+                                            </button>`;
+                            });
+
+                            let row = `<tr>
+                                        <td><strong>${teacher.name}</strong></td>
+                                        <td>${slotsHtml}</td>
+                                    </tr>`;
+                            tableBody.innerHTML += row;
+                        });
+                        scheduleModal.show();
+                    })
+                    .catch(error => {
+                        console.error('Error fetching availability:', error);
+                        tableBody.innerHTML = '<tr><td colspan="2" class="text-center text-danger">Gagal memuat jadwal. Silakan coba lagi.</td></tr>';
+                    });
                 }
-
-                // Masukkan ke form/modal
-                document.getElementById('schedule_date').value = new Date(clickedDate).toLocaleDateString('id-ID', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                });
-
-                const modal = new bootstrap.Modal(document.getElementById('eventDetailModal'));
-                modal.show();
             },
 
             eventClick: function (info) {
@@ -215,22 +260,39 @@
                 $("#t-guru").text(props.guru);
                 $("#t-time").text(props.schedule_time);
                 $("#t-deskripsi").text(props.deskripsi);
-                
+                $("#t-status").html(props.status);
+
 
                 const modal = new bootstrap.Modal(document.getElementById('modal-detail-schedule'));
                 modal.show();
             },
 
-            eventDidMount: function(info) {
-                // Simpan tanggal-tanggal yang sudah ada jadwal
-                const tanggal = info.event.startStr;
-                if (!tanggalTerisi.includes(tanggal)) {
-                    tanggalTerisi.push(tanggal);
-                }
-            }
+            
         });
 
         calendar.render();
+        $('#teacher-availability-table-body').on('click', '.select-slot-btn', function() {
+            // Ambil data dari atribut data-* tombol
+            const teacherId = $(this).data('teacher-id');
+            const teacherName = $(this).data('teacher-name');
+            const time = $(this).data('time');
+            const dateText = $('#selected_date_text').text();
+
+            // Isi input tersembunyi untuk form submission
+            $('#selected_teacher_id').val(teacherId);
+            $('#selected_schedule_time').val(time);
+
+            // Tampilkan detail konfirmasi
+            $('#confirmation-details').html(
+                `Anda akan membuat janji temu dengan <strong>${teacherName}</strong> pada hari <strong>${dateText}</strong>, pukul <strong>${time}</strong>.`
+            );
+
+            // Ganti tampilan modal dari tabel ke konfirmasi
+            availabilityView.style.display = 'none';
+            confirmationView.style.display = 'block';
+            submitBtn.style.display = 'block';
+        });
+
     });
 
     $(document).ready(function() {

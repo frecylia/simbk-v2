@@ -27,7 +27,9 @@ class Schedule extends Model
     // Relasi ke guru BK
     public function teacher()
     {
-        return $this->belongsTo(Teacher::class, 'teacher_id');
-        }
+        return $this->belongsTo(User::class, 'user_id')->whereHas('roles', function ($query) {
+            $query->where('name', 'GuruBk');
+        });
     }
 
+}
